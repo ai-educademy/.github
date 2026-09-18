@@ -12,10 +12,8 @@ permissions:
   issues: read
   pull-requests: read
   actions: read
-  copilot-requests: write
 engine:
   id: copilot
-  copilot-sdk: true
 timeout-minutes: 30
 strict: true
 network:
