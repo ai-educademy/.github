@@ -87,39 +87,71 @@ independently. For every `.md` agentic workflow across all five repos, check:
 1. **Over-broad permissions.** Flag any `permissions:` block granting `write`
    where the workflow only needs to read, especially `contents: write`,
    `actions: write` or `administration` anywhere. Agent write actions should go
-   through `safe-outputs`, not raw permissions. `copilot-requests: write` is
-   expected and fine.
+   through `safe-outputs`, not raw permissions.
 
-2. **Missing cost cap.** Flag any workflow without `max-daily-ai-credits`. An
+2. **Engine and inference credential must actually work in this org (a
+   finding, not a nicety).** This org has no centralised Copilot billing, so two
+   settings that compile cleanly still leave the agent dead:
+   - `copilot-requests: write` in the `permissions:` block. It routes inference
+     through org-level billing that does not exist here, so the models endpoint
+     returns 403 and the agent cannot infer at all. Flag it as a finding.
+   - `copilot-sdk: true` in the `engine:` block. It forces bring-your-own-key
+     driver mode and the harness aborts before doing any work. Flag it as a
+     finding.
+   An agent that cannot run is not a minor configuration nit. It is a silently
+   dead agent, and a dead agent is indistinguishable from a healthy one unless
+   someone checks. The correct expected state is: no `copilot-requests`
+   permission, `engine: copilot` with no `copilot-sdk`, and the compiled
+   `.lock.yml` referencing `COPILOT_GITHUB_TOKEN` (which falls back to the
+   owner's Copilot subscription). If a workflow diverges from that, say so and
+   name the fix.
+
+3. **Missing cost cap.** Flag any workflow without `max-daily-ai-credits`. An
    uncapped agent can run away with spend.
 
-3. **Missing timeout.** Flag any workflow without `timeout-minutes`.
+4. **Missing timeout.** Flag any workflow without `timeout-minutes`.
 
-4. **`strict: true` absent.** Flag it. Strict mode catches configuration
+5. **`strict: true` absent.** Flag it. Strict mode catches configuration
    mistakes at compile time, and turning it off is how mistakes reach production.
 
-5. **Unpinned third-party actions.** In any `steps:` or generated lock file, flag
+6. **Unpinned third-party actions.** In any `steps:` or generated lock file, flag
    `uses:` references to third-party actions pinned to a moving tag (`@v4`,
    `@main`) rather than a full commit SHA. First-party `actions/*` on a version
    tag is acceptable but note it. A moving third-party tag is a supply-chain hole.
 
-6. **Markdown and lock file out of step.** If a `.md` file has been edited more
+7. **Markdown and lock file out of step.** If a `.md` file has been edited more
    recently than its `.lock.yml`, or the lock file is missing, someone changed
    the agent's prompt or config without recompiling. Flag it: the running agent
    does not match the reviewed source. Compare commit history or file contents to
    spot this.
 
-7. **Secrets referenced that do not exist.** Collect every `secrets.NAME` used in
+8. **Secrets referenced that do not exist.** Collect every `secrets.NAME` used in
    the frontmatter (github-token, env, safe-outputs). The known secrets in this
    org are `FLEET_PAT` (should exist in `.github`) and `SUBMODULE_PAT` (exists in
    `ai-platform`). Flag any other secret reference so the owner can confirm it is
    actually configured, because a missing secret makes the agent fail silently or
    fall back in a way nobody intended.
 
-8. **Network allowlist wider than needed.** Flag any `network:` allowing more than
+9. **Network allowlist wider than needed.** Flag any `network:` allowing more than
    the workflow plausibly needs. `allowed: [defaults]` is the sensible baseline.
    A wildcard or a long custom domain list on an agent that only talks to GitHub
    deserves a question.
+
+## Runnability outranks tidiness
+
+"It compiles" is not evidence that an agent can run. Compilation only proves the
+YAML is well formed. It says nothing about whether the declared engine and
+credential can actually reach a model in this org. That gap is exactly how a
+whole fleet shipped looking healthy while every agent was dead on dispatch.
+
+So for every agentic workflow, reason about whether its engine and inference
+credential are genuinely usable here, not just syntactically valid. Trace the
+credential the compiled `.lock.yml` will actually use and confirm it matches
+this org's reality (owner's Copilot subscription via `COPILOT_GITHUB_TOKEN`, no
+org-level billing, no BYOK provider). If an agent would 403 or abort the moment
+it is dispatched, that is a top-tier finding, because a silently dead agent
+gives false assurance and false assurance is worse than an obvious gap. Treat
+runnability as ranking above every stylistic nit in this list.
 
 ## Output
 
