@@ -41,8 +41,8 @@ so expect a note in the daily report if you do this.
 
 | Workflow | Type | Schedule | Cost cap | What it does |
 |---|---|---|---|---|
-| `fleet-chief.md` | Agentic (Copilot) | Daily | 8000 credits/day | Surveys all five repos and reports fleet health: failing agents, stuck PRs, issue backlog, cost, consistency drift, guardrail integrity, and the Stripe payment path. Reads and reasons only. Opens one consolidated issue labelled `fleet-health`, plus separate `URGENT` issues for genuinely urgent findings. |
-| `fleet-auditor.md` | Agentic (Copilot) | Weekly (Monday) | 8000 credits/day | Audits the fleet's own configuration across all five repos: over-broad permissions, missing caps or timeouts, `strict` off, unpinned actions, markdown and lock files out of step, unknown secrets, wide network allowlists. Opens one issue per finding, labelled `fleet-audit`. |
+| `fleet-chief.md` | Agentic (Gemini) | Daily | 8000 credits/day | Surveys all five repos and reports fleet health: failing agents, stuck PRs, issue backlog, cost, consistency drift, guardrail integrity, and the Stripe payment path. Reads and reasons only. Opens one consolidated issue labelled `fleet-health`, plus separate `URGENT` issues for genuinely urgent findings. |
+| `fleet-auditor.md` | Agentic (Gemini) | Weekly (Monday) | 8000 credits/day | Audits the fleet's own configuration across all five repos: over-broad permissions, missing caps or timeouts, `strict` off, unpinned actions, markdown and lock files out of step, unknown secrets, wide network allowlists. Opens one issue per finding, labelled `fleet-audit`. |
 | `org-fleet-manager.yml` | Plain YAML | Every 30 min | n/a | The actual cross-repo merge authority. Merges genuinely-ready agent PRs across all five repos, within strict guardrails and merge caps. Never a model. |
 | `fleet-dispatch.yml` | Plain YAML | Manual only | n/a | Lets the owner fire any named agent at any named repo on demand, for example pointing `pr-doctor` at one stuck PR. |
 
@@ -94,44 +94,97 @@ There are also merge caps: at most 5 merges per repo and 10 in total per run, so
 a haywire fleet can only do bounded damage between runs. A `concurrency` group
 stops overlapping runs.
 
-## The inference credential: COPILOT_GITHUB_TOKEN
+## The inference credential: GEMINI_API_KEY
 
 Every agentic workflow in the fleet needs a credential to reach a model. In this
-org that is the secret **`COPILOT_GITHUB_TOKEN`**, holding a PAT tied to a
-personal Copilot subscription, set in **all five repos**:
+org that is the secret **`GEMINI_API_KEY`**, and the engine is **Gemini**:
+
+```yaml
+engine:
+  id: gemini
+  model: gemini-3.5-flash-lite
+```
+
+It must be set in all five repos. An organisation-level secret is simpler than
+five repository ones:
 
 ```
-for r in ai-platform ai-ui-library ai-courses ai-courses-pro .github; do
-  gh secret set COPILOT_GITHUB_TOKEN --repo ai-educademy/$r
-done
+gh secret set GEMINI_API_KEY --org ai-educademy --visibility all
 ```
 
-### Why not `permissions: copilot-requests: write`
+### Why not Copilot, in any of its three forms
 
-Because it does not work here, and it fails in a way that is easy to miss. That
-permission routes inference through the Actions token, which sounds ideal since
-it spreads no API keys around. It requires **centralised Copilot billing at
-organisation level**, which this org does not have. Without it, every agent dies
-at startup on:
+The Copilot engine cannot work in this org, and each route fails differently
+enough to waste a day on its own. All three were proven dead by real dispatches,
+not by reading documentation:
 
-```
-awf-reflect: models fetch returned 403 for http://api-proxy:10002/models
-```
+| Route | Failure |
+|---|---|
+| `engine: copilot` with no extras | `Secret Verification Failed`, because `COPILOT_GITHUB_TOKEN` does not exist and cannot be minted from the available token |
+| `permissions: copilot-requests: write` | `models fetch returned 403`, because it routes through centralised Copilot billing this personal org does not have |
+| `copilot-sdk: true` | `BYOK provider is required but could not be resolved`, a hard abort before any tool call |
 
 `gh aw compile` will actively suggest you add `copilot-requests: write`, and it
 compiles cleanly with it. **Ignore that suggestion.** It is written for orgs on
 Copilot Business or Enterprise.
 
-Do not use `copilot-sdk: true` either. It forces bring-your-own-key driver mode,
-which aborts before doing any work unless an external provider is configured.
+### Why not GitHub Models either
+
+GitHub Models looks like the perfect answer: free inference through the Actions
+token with `permissions: models: read`, no secret, no Copilot billing. The
+upstream gh-aw repository still ships example workflows using it.
+
+It is being retired. Authentication succeeds and then the request returns:
+
+```
+410 Gone: GitHub Models is temporarily unavailable as part of a
+scheduled retirement brownout.
+```
+
+Do not spend time on this route.
+
+## Model pinning and the free-tier quota
+
+**Always pin a model.** An unpinned model resolves to a default that Google
+retires without notice, and a retired model fails at *request* time, not compile
+time. `gemini-2.5-flash` now answers `no longer available to new users`.
+
+**Check the model actually exists before pinning it.** Guessing plausible names
+does not work: `gemini-3.6-flash-lite` sounds real and does not exist. Ask the
+API:
+
+```
+curl -sS "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY&pageSize=200" \
+  | jq -r '.models[] | select(.supportedGenerationMethods[]? == "generateContent") | .name'
+```
+
+**Quota is metered per model, not per key.** The free tier allows 20 requests per
+day per model, and a single agent run can consume eight of them. Dispatching four
+agents against one model exhausts the whole day in minutes.
+
+So every agent is pinned to a *different* model. No two agents share a bucket,
+which turns roughly 20 requests per day into roughly 200. When you add an agent,
+give it a model nothing else is using, and record it in the table above. If you
+run out of distinct models, that is the signal the fleet has outgrown the free
+tier and billing should be enabled on the key.
 
 ### The lesson worth keeping
 
 A clean compile proves the YAML is well formed. It proves nothing about whether
-an agent can reach a model. When you change engine or credential configuration,
-dispatch a real run and confirm the **`agent`** job reaches `success`. The
-`activation` job succeeding only means secrets resolved, and a dead agent is
-indistinguishable from a healthy one until somebody looks.
+an agent can reach a model. Worse, a run whose `agent` job failed can still
+report `conclusion: success` at the workflow level, so the tick in the UI means
+very little.
+
+When you change engine, model or credential configuration, dispatch a real run
+and check the **job**, not the run:
+
+```
+gh run view <id> --json jobs --jq '.jobs[]|"\(.name)=\(.conclusion)"'
+```
+
+The `agent` job must say `success`. `activation` succeeding only means secrets
+resolved. A dead agent is indistinguishable from a healthy one until somebody
+looks.
 
 ## The cross-repo token: FLEET_PAT
 
@@ -193,8 +246,9 @@ gh workflow run fleet-dispatch.yml --repo ai-educademy/.github \
 ## Adding a new agent to this layer
 
 1. Write a new `*.md` agentic workflow in `.github/workflows/`, using the same
-   frontmatter shape as `fleet-chief.md`: `engine: copilot` (no `copilot-sdk`,
-   and no `copilot-requests` permission, see the credential section above), a
+   frontmatter shape as `fleet-chief.md`: `engine: gemini` with a pinned
+   `model:` that no other agent is already using (see the credential and quota
+   sections above), a
    `max-daily-ai-credits` cap, `timeout-minutes`, `strict: true`, a
    `network.allowed` list, and a `FLEET_PAT` preflight step if it needs to reach
    other repos.
@@ -202,8 +256,9 @@ gh workflow run fleet-dispatch.yml --repo ai-educademy/.github \
    over-grant.
 3. Compile with `gh aw compile`. Commit both the `.md` and the generated
    `.lock.yml`, plus `.github/aw/` and `.gitattributes`. Confirm the lock
-   references `secrets.COPILOT_GITHUB_TOKEN`, then dispatch it once and check
-   the `agent` job actually succeeds.
+   references `secrets.GEMINI_API_KEY`, then dispatch it once and confirm the
+   `agent` job itself reports `success`. Do not accept the run-level tick: a run
+   can report `conclusion: success` while the `agent` job inside it failed.
 4. Never give an agent a merge safe-output. Merge authority stays in
    `org-fleet-manager.yml` alone.
 5. Document it in the table above.
