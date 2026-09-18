@@ -13,7 +13,8 @@ permissions:
   pull-requests: read
   actions: read
 engine:
-  id: copilot
+  id: gemini
+  model: gemini-3.6-flash
 timeout-minutes: 30
 strict: true
 network:
