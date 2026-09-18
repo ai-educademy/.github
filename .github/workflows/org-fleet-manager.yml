@@ -1,0 +1,342 @@
+# org-fleet-manager.yml
+#
+# The real "manager of managers" in the sense of AUTHORITY. This is the only
+# thing in the whole org-level fleet that is allowed to merge pull requests
+# across all five repos.
+#
+# WHY THIS IS PLAIN YAML AND NEVER A MODEL
+# ----------------------------------------
+# Merge authority is deliberately dumb, deterministic and auditable. A language
+# model can be prompt-injected through a PR title, a file diff or an issue body,
+# and it can hallucinate that a change is "probably fine". Merging is the one
+# action in this fleet that spends real money (the ai-platform repo is the
+# revenue path) and that can widen the fleet's own privileges (a merged change to
+# .github/workflows/ changes what every agent is allowed to do). So the decision
+# to merge is made by boring, readable shell logic that a human can audit line by
+# line, months from now, with no model in the loop. If you are tempted to make
+# this "smarter" by handing the decision to an agent: don't. The whole point is
+# that this file cannot be talked into anything.
+#
+# The agentic workflows (fleet-chief, fleet-auditor and the per-repo agents) have
+# NO merge safe-output by design. They structurally cannot merge. Authority lives
+# here and only here.
+
+name: Org Fleet Manager
+
+on:
+  # Every 30 minutes so ready agent PRs do not sit around, but bounded by the
+  # per-run merge caps below so a haywire fleet can only do limited damage
+  # between runs.
+  schedule:
+    - cron: "*/30 * * * *"
+  # Manual trigger, optionally targeting a single repo (handy after an incident).
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Target a single repo, or 'all' for the whole org"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ai-platform
+          - ai-ui-library
+          - ai-courses
+          - ai-courses-pro
+          - .github
+
+# Only one merge run at a time. Overlapping runs could both try to merge the same
+# PR or blow past the caps. We do NOT cancel in progress: a running merge should
+# finish cleanly rather than be killed half way.
+concurrency:
+  group: org-fleet-manager
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    env:
+      # FLEET_PAT is a fine-grained PAT (or GitHub App token) with pull_request
+      # write across all five repos. GITHUB_TOKEN is repo-scoped and cannot reach
+      # sibling repos, so cross-repo merging genuinely needs a PAT. See FLEET.md.
+      GH_TOKEN: ${{ secrets.FLEET_PAT }}
+      # The single kill switch. Set repository variable FLEET_AUTOMERGE to "off"
+      # to stand the entire org fleet down. Checked first, below.
+      FLEET_AUTOMERGE: ${{ vars.FLEET_AUTOMERGE }}
+      TARGET_REPO: ${{ github.event.inputs.repo }}
+      ORG: ai-educademy
+      # Caps: a haywire fleet does bounded damage between runs.
+      PER_REPO_CAP: "5"
+      TOTAL_CAP: "10"
+      # Bots we trust to have their PRs auto-merged. NEVER a human login.
+      ALLOWED_AUTHORS: "github-actions[bot] app/github-actions dependabot[bot] app/dependabot"
+
+    steps:
+      # ------------------------------------------------------------------
+      # GUARD 0: the kill switch. Checked before anything else so it is the
+      # single, obvious lever that stops everything. If FLEET_AUTOMERGE is "off",
+      # we exit cleanly and merge nothing.
+      # ------------------------------------------------------------------
+      - name: Kill switch
+        run: |
+          set -euo pipefail
+          if [ "${FLEET_AUTOMERGE:-}" = "off" ]; then
+            echo "## Org Fleet Manager: STOOD DOWN" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Repository variable \`FLEET_AUTOMERGE\` is set to \`off\`. No PRs were merged." >> "$GITHUB_STEP_SUMMARY"
+            echo "Set it to anything other than \`off\` (or delete it) to re-enable auto-merge." >> "$GITHUB_STEP_SUMMARY"
+            echo "Kill switch is ON. Exiting without merging anything."
+            exit 0
+          fi
+          echo "Kill switch is off (FLEET_AUTOMERGE='${FLEET_AUTOMERGE:-<unset>}'). Proceeding."
+
+      # ------------------------------------------------------------------
+      # GUARD 1: fail loudly if FLEET_PAT is missing. Without it, GH_TOKEN is
+      # empty and every gh call would fail in a confusing way. Better to stop
+      # with a clear, actionable message.
+      # ------------------------------------------------------------------
+      - name: Require FLEET_PAT
+        if: ${{ vars.FLEET_AUTOMERGE != 'off' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error title=FLEET_PAT missing::org-fleet-manager needs a cross-repo token to merge PRs in sibling repos. GITHUB_TOKEN is repo-scoped and cannot reach them. Create a fine-grained PAT with pull_request:write on all five repos and add it as the FLEET_PAT secret in ai-educademy/.github. See FLEET.md for exact scopes."
+            exit 1
+          fi
+          echo "FLEET_PAT is present."
+
+      # ------------------------------------------------------------------
+      # The merge logic. Deliberately one readable script. Every skip is logged
+      # with its precise reason to the step summary, which is the audit trail for
+      # automated merges.
+      # ------------------------------------------------------------------
+      - name: Merge ready agent PRs
+        if: ${{ vars.FLEET_AUTOMERGE != 'off' }}
+        run: |
+          set -euo pipefail
+
+          # Decide which repos to process.
+          if [ -n "${TARGET_REPO:-}" ] && [ "${TARGET_REPO}" != "all" ]; then
+            REPOS="$TARGET_REPO"
+          else
+            REPOS="ai-platform ai-ui-library ai-courses ai-courses-pro .github"
+          fi
+
+          # Required checks by NAME, per repo. Only ai-platform has branch
+          # protection today; its required jobs are exactly build and smoke-test
+          # (e2e-tests also runs but is not required). Matching is by check-run
+          # name, tolerating the "CI / build" and "CI/build (pull_request)" forms.
+          required_for() {
+            case "$1" in
+              ai-platform) echo "build smoke-test" ;;
+              *) echo "" ;;
+            esac
+          }
+
+          # Normalise a check name to its last segment, lower-cased, with any
+          # "(pull_request)" suffix and surrounding whitespace stripped. So
+          # "CI / build", "CI/build (pull_request)" and "build" all become "build".
+          norm() {
+            printf '%s' "$1" \
+              | sed 's/([^)]*)//g' \
+              | awk -F'/' '{print $NF}' \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
+          }
+
+          {
+            echo "## Org Fleet Manager run summary"
+            echo ""
+            echo "Run: \`${GITHUB_RUN_ID:-local}\` at $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+            echo "Repos this run: ${REPOS}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for REPO in $REPOS; do
+            FULL="${ORG}/${REPO}"
+            REPO_MERGED=0
+            REQUIRED="$(required_for "$REPO")"
+
+            echo "### ${FULL}" >> "$GITHUB_STEP_SUMMARY"
+
+            # List open PRs with everything we need to judge them. If the repo has
+            # no fleet yet, or the token cannot see it, log and carry on rather
+            # than failing the whole run.
+            if ! PRS_JSON="$(gh pr list --repo "$FULL" --state open \
+                  --json number,title,author,isDraft,mergeable,reviewDecision,labels,files,statusCheckRollup \
+                  2>/dev/null)"; then
+              echo "- Could not list PRs (repo missing, no access, or no fleet yet). Skipping." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            COUNT="$(echo "$PRS_JSON" | jq 'length')"
+            if [ "$COUNT" -eq 0 ]; then
+              echo "- No open PRs." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            # Walk each PR.
+            echo "$PRS_JSON" | jq -c '.[]' | while read -r PR; do
+              NUM="$(echo "$PR" | jq -r '.number')"
+              TITLE="$(echo "$PR" | jq -r '.title')"
+              AUTHOR="$(echo "$PR" | jq -r '.author.login // ""')"
+              IS_DRAFT="$(echo "$PR" | jq -r '.isDraft')"
+              MERGEABLE="$(echo "$PR" | jq -r '.mergeable')"
+              REVIEW="$(echo "$PR" | jq -r '.reviewDecision // ""')"
+              LABELS="$(echo "$PR" | jq -r '[.labels[].name] | join(",")')"
+
+              skip() {
+                echo "- PR #${NUM} (${TITLE}) by ${AUTHOR}: SKIPPED, $1" >> "$GITHUB_STEP_SUMMARY"
+              }
+
+              # GUARD 2: author allowlist. Bots only, never a human, no matter how
+              # green the PR is. A human PR is a human's decision to merge.
+              CASE=" ${ALLOWED_AUTHORS} "
+              if [[ "$CASE" != *" ${AUTHOR} "* ]]; then
+                skip "author '${AUTHOR}' is not an allowed bot"
+                continue
+              fi
+
+              # GUARD 3: never auto-merge a change to any workflow. An agent must
+              # not be able to widen its own permissions or disable its own
+              # guardrails through a PR. Label needs-human and leave it.
+              if echo "$PR" | jq -e '.files[] | select(.path | startswith(".github/workflows/"))' >/dev/null 2>&1; then
+                gh pr edit "$NUM" --repo "$FULL" --add-label "needs-human" >/dev/null 2>&1 || true
+                skip "touches .github/workflows/ (labelled needs-human, a human must review workflow changes)"
+                continue
+              fi
+
+              # GUARD 4: never auto-merge a change to the payment path in
+              # ai-platform. A wrong merge here costs real money. Label needs-human.
+              if [ "$REPO" = "ai-platform" ] && echo "$PR" | jq -e '.files[] | select(.path | startswith("src/app/api/stripe/"))' >/dev/null 2>&1; then
+                gh pr edit "$NUM" --repo "$FULL" --add-label "needs-human" >/dev/null 2>&1 || true
+                skip "touches src/app/api/stripe/ (labelled needs-human, the payment path always requires a human)"
+                continue
+              fi
+
+              # GUARD 5: drafts are not ready by definition.
+              if [ "$IS_DRAFT" = "true" ]; then
+                skip "is a draft"
+                continue
+              fi
+
+              # GUARD 6: explicit human holds.
+              for HOLD in do-not-merge wip needs-human; do
+                if [[ ",${LABELS}," == *",${HOLD},"* ]]; then
+                  skip "carries the '${HOLD}' label"
+                  continue 2
+                fi
+              done
+
+              # GUARD 7: a reviewer asked for changes.
+              if [ "$REVIEW" = "CHANGES_REQUESTED" ]; then
+                skip "review decision is CHANGES_REQUESTED"
+                continue
+              fi
+
+              # GUARD 8: git says it is not cleanly mergeable (conflicts, etc.).
+              if [ "$MERGEABLE" != "MERGEABLE" ]; then
+                skip "mergeable state is '${MERGEABLE}', not MERGEABLE"
+                continue
+              fi
+
+              # GUARD 9: checks must be GENUINELY green. Zero checks reported is
+              # treated as "not ready", never as "nothing failed". Any failing or
+              # pending check blocks the merge.
+              ROLLUP="$(echo "$PR" | jq -c '.statusCheckRollup // []')"
+              CHECK_COUNT="$(echo "$ROLLUP" | jq 'length')"
+              if [ "$CHECK_COUNT" -eq 0 ]; then
+                skip "no checks have reported yet (treated as not ready)"
+                continue
+              fi
+
+              FAILING="$(echo "$ROLLUP" | jq '[.[]
+                | select(
+                    (.__typename == "CheckRun" and (.conclusion // "" | ascii_upcase) as $c
+                       | ($c == "FAILURE" or $c == "CANCELLED" or $c == "TIMED_OUT" or $c == "ACTION_REQUIRED" or $c == "STARTUP_FAILURE"))
+                    ) or (
+                    (.__typename == "StatusContext" and (.state // "" | ascii_upcase) as $s
+                       | ($s == "FAILURE" or $s == "ERROR"))
+                    )
+                  )] | length')"
+
+              PENDING="$(echo "$ROLLUP" | jq '[.[]
+                | select(
+                    (.__typename == "CheckRun" and (.status // "" | ascii_upcase) != "COMPLETED")
+                    ) or (
+                    (.__typename == "StatusContext" and (.state // "" | ascii_upcase) as $s
+                       | ($s == "PENDING" or $s == "EXPECTED"))
+                    )
+                  )] | length')"
+
+              if [ "$FAILING" -ne 0 ]; then
+                skip "${FAILING} check(s) failing"
+                continue
+              fi
+              if [ "$PENDING" -ne 0 ]; then
+                skip "${PENDING} check(s) still pending"
+                continue
+              fi
+
+              # GUARD 10: required checks present AND green, matched by name. We
+              # build the set of successful check names, normalise them, and
+              # confirm every required name is present. This is why zero checks is
+              # "not ready": a required check that never ran is not a pass.
+              if [ -n "$REQUIRED" ]; then
+                SUCCESS_NAMES="$(echo "$ROLLUP" | jq -r '.[]
+                  | select(
+                      (.__typename == "CheckRun" and (.conclusion // "" | ascii_upcase) as $c | ($c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED"))
+                    ) or (
+                      (.__typename == "StatusContext" and (.state // "" | ascii_upcase) == "SUCCESS")
+                    )
+                  | (.name // .context // "")')"
+
+                MISSING=""
+                for REQ in $REQUIRED; do
+                  FOUND="no"
+                  while IFS= read -r SN; do
+                    [ -z "$SN" ] && continue
+                    if [ "$(norm "$SN")" = "$(norm "$REQ")" ]; then FOUND="yes"; break; fi
+                  done <<< "$SUCCESS_NAMES"
+                  if [ "$FOUND" = "no" ]; then MISSING="${MISSING} ${REQ}"; fi
+                done
+
+                if [ -n "$MISSING" ]; then
+                  skip "required check(s) not present-and-green by name:${MISSING}"
+                  continue
+                fi
+              fi
+
+              # Per-repo cap.
+              if [ "$REPO_MERGED" -ge "$PER_REPO_CAP" ]; then
+                skip "per-repo merge cap (${PER_REPO_CAP}) reached this run"
+                continue
+              fi
+              # Total cap. Read the shared counter file (subshell-safe).
+              CUR_TOTAL="$(cat .fleet_total 2>/dev/null || echo 0)"
+              if [ "$CUR_TOTAL" -ge "$TOTAL_CAP" ]; then
+                skip "total merge cap (${TOTAL_CAP}) reached this run"
+                continue
+              fi
+
+              # All guards passed. Squash-merge.
+              if gh pr merge "$NUM" --repo "$FULL" --squash >/dev/null 2>&1; then
+                REPO_MERGED=$((REPO_MERGED + 1))
+                echo $((CUR_TOTAL + 1)) > .fleet_total
+                echo "- PR #${NUM} (${TITLE}) by ${AUTHOR}: MERGED (squash)" >> "$GITHUB_STEP_SUMMARY"
+              else
+                skip "merge command failed (branch protection, race, or permissions)"
+              fi
+            done
+          done
+
+          FINAL_TOTAL="$(cat .fleet_total 2>/dev/null || echo 0)"
+          {
+            echo ""
+            echo "**Total merged this run: ${FINAL_TOTAL}** (total cap ${TOTAL_CAP}, per-repo cap ${PER_REPO_CAP})."
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f .fleet_total
