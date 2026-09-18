@@ -160,6 +160,11 @@ Create a **fine-grained PAT** at
     `fleet-dispatch` can trigger workflows in sibling repos).
   - **Issues: Read-only** (the agents open issues in `.github` via their own
     scoped token; they only need to read issues elsewhere).
+  - **Administration: Read-only** (so `fleet-auditor` can read branch protection
+    and check that required contexts match checks the repo really produces). If
+    you would rather not grant this, the auditor falls back to inferring the
+    same fault from pull requests that are `BLOCKED` while fully green, which
+    works but is less direct.
   - **Metadata: Read-only** (mandatory, added automatically).
 - **Organisation permissions**: none required.
 

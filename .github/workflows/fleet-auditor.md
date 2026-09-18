@@ -12,6 +12,7 @@ permissions:
   issues: read
   pull-requests: read
   actions: read
+  checks: read
 engine:
   id: copilot
 timeout-minutes: 30
@@ -137,6 +138,39 @@ independently. For every `.md` agentic workflow across all five repos, check:
    A wildcard or a long custom domain list on an agent that only talks to GitHub
    deserves a question.
 
+10. **Required status checks that no check actually produces.** For each repo,
+    read the branch protection on `main` and list its required contexts. Then
+    list the check names the repo's workflows genuinely report, by looking at a
+    recent pull request's checks rather than by inferring from the YAML. Flag any
+    required context with no matching check name.
+
+    If `FLEET_PAT` lacks Administration read and you cannot fetch branch
+    protection, do not skip this check. Use the observable symptom instead: a
+    pull request whose every reported check has passed but whose
+    `mergeStateStatus` is `BLOCKED` is almost certainly waiting on a required
+    context that nothing produces. Say which method you used, so the finding can
+    be weighed properly.
+
+    This is a top-tier finding, not a nit. A required context that never matches
+    stays pending forever, so every pull request reports `BLOCKED` no matter how
+    green it is. Since the fleet-managers run with `GITHUB_TOKEN` and have no
+    admin override, they would land nothing at all, and the symptom is an
+    apparently idle fleet rather than an error. A human with admin rights can
+    override it without noticing, which is precisely how it survives.
+
+    This has already happened here: `ai-platform` required
+    `CI/build (pull_request)` while the check reports as `build`.
+
+    Flag the inverse too: a check that gates nothing. If a repo runs meaningful
+    tests that are not in the required contexts, say so. Tests that run without
+    gating do not justify unattended merging.
+
+11. **Repos with no branch protection at all.** Flag them, but weigh the finding
+    against what is actually possible. `ai-courses-pro` is private on a free
+    plan, where branch protection is unavailable, so reporting it every week is
+    noise. Note it once as an accepted limitation and move on. Any repo that
+    *could* be protected and is not is a genuine finding.
+
 ## Runnability outranks tidiness
 
 "It compiles" is not evidence that an agent can run. Compilation only proves the
@@ -152,6 +186,24 @@ org-level billing, no BYOK provider). If an agent would 403 or abort the moment
 it is dispatched, that is a top-tier finding, because a silently dead agent
 gives false assurance and false assurance is worse than an obvious gap. Treat
 runnability as ranking above every stylistic nit in this list.
+
+## Safeguards that cannot fail
+
+Generalise the point above, because it is the single most common defect found in
+this org and it has appeared in four different disguises:
+
+- an agent fleet that compiled cleanly but could not reach a model
+- a lint step written as `npm run lint || true`, so it always passed
+- a content validator that crashed on a legitimate no-match, and that also lost
+  its failure flag in a subshell, so it could not have failed even when it found
+  real problems
+- branch protection whose required contexts matched no real check
+
+In every case there was a green tick, and the green tick was the problem rather
+than the evidence. So when auditing any check, gate or guard, do not ask whether
+it is present and passing. Ask what would have to be true for it to fail, and
+whether it could actually detect that. If you cannot construct a plausible input
+that makes it fail, report it as broken even though it is green.
 
 ## Output
 
