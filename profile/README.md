@@ -111,6 +111,15 @@ We welcome contributions from everyone:
 - 💻 **Code**. Features, fixes, new programmes
 - 📣 **Share**. Tell your friends, classmates and communities
 
+## 🤖 Automation
+
+This org runs an agent fleet. Each repo has its own agents, and the
+[`ai-educademy/.github`](https://github.com/ai-educademy/.github) repo runs the
+org-level command layer above them: a daily Fleet Chief that reports fleet
+health, a weekly Fleet Auditor that checks the agents' own configuration, and a
+plain, auditable cross-repo merge authority. Read [FLEET.md](FLEET.md) for what
+each agent does, how the guardrails work, and where the kill switch is.
+
 ## 👨‍💻 Built By
 
 [**@rameshreddy-adutla**](https://github.com/rameshreddy-adutla) · Tech Lead, 14 years experience · London

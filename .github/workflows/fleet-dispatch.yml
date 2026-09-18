@@ -1,0 +1,91 @@
+# fleet-dispatch.yml
+#
+# Manual control panel for the owner. Lets you fire any named agent workflow at
+# any named repo from the GitHub Actions UI, without cloning anything or leaving
+# the browser. The obvious use is pointing pr-doctor at one specific stuck PR.
+#
+# This is plain YAML on purpose (same reasoning as org-fleet-manager.yml): manual
+# controls should be boring and predictable, not mediated by a model.
+
+name: Fleet Dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Which repo to run the agent in"
+        required: true
+        type: choice
+        options:
+          - ai-platform
+          - ai-ui-library
+          - ai-courses
+          - ai-courses-pro
+          - .github
+      workflow:
+        description: "Workflow file or name to run, e.g. pr-doctor.lock.yml"
+        required: true
+        type: string
+      pr:
+        description: "Optional PR number to pass through (e.g. for pr-doctor)"
+        required: false
+        type: string
+
+# Only one manual dispatch at a time, and let it finish.
+concurrency:
+  group: fleet-dispatch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      # Cross-repo dispatch needs a PAT: GITHUB_TOKEN cannot trigger workflows in
+      # sibling repos. See FLEET.md for the exact scopes.
+      GH_TOKEN: ${{ secrets.FLEET_PAT }}
+      ORG: ai-educademy
+      REPO: ${{ github.event.inputs.repo }}
+      WF: ${{ github.event.inputs.workflow }}
+      PR: ${{ github.event.inputs.pr }}
+    steps:
+      - name: Require FLEET_PAT
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error title=FLEET_PAT missing::fleet-dispatch needs a cross-repo token to trigger workflows in sibling repos. Create a fine-grained PAT with actions:write on all five repos and add it as the FLEET_PAT secret in ai-educademy/.github. See FLEET.md for exact scopes."
+            exit 1
+          fi
+          echo "FLEET_PAT is present."
+
+      - name: Trigger the agent
+        run: |
+          set -euo pipefail
+          FULL="${ORG}/${REPO}"
+          echo "## Fleet Dispatch" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: \`${FULL}\`  workflow: \`${WF}\`  pr: \`${PR:-<none>}\`" >> "$GITHUB_STEP_SUMMARY"
+
+          # Build the gh command. Pass the pr input through only when supplied, so
+          # workflows that do not accept a 'pr' input still run cleanly.
+          if [ -n "${PR:-}" ]; then
+            if gh workflow run "$WF" --repo "$FULL" --ref main -f pr="$PR" 2>err.log; then
+              echo "- Triggered \`${WF}\` in \`${FULL}\` with pr=${PR}." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Failed to trigger ${WF} in ${FULL}. The workflow may not accept a 'pr' input, or the name is wrong."
+              cat err.log
+              echo "- FAILED to trigger \`${WF}\` in \`${FULL}\`. See run logs." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          else
+            if gh workflow run "$WF" --repo "$FULL" --ref main 2>err.log; then
+              echo "- Triggered \`${WF}\` in \`${FULL}\`." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Failed to trigger ${WF} in ${FULL}. Check the workflow file name and that it has a workflow_dispatch trigger."
+              cat err.log
+              echo "- FAILED to trigger \`${WF}\` in \`${FULL}\`. See run logs." >> "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
+          fi
