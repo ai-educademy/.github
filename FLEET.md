@@ -94,6 +94,45 @@ There are also merge caps: at most 5 merges per repo and 10 in total per run, so
 a haywire fleet can only do bounded damage between runs. A `concurrency` group
 stops overlapping runs.
 
+## The inference credential: COPILOT_GITHUB_TOKEN
+
+Every agentic workflow in the fleet needs a credential to reach a model. In this
+org that is the secret **`COPILOT_GITHUB_TOKEN`**, holding a PAT tied to a
+personal Copilot subscription, set in **all five repos**:
+
+```
+for r in ai-platform ai-ui-library ai-courses ai-courses-pro .github; do
+  gh secret set COPILOT_GITHUB_TOKEN --repo ai-educademy/$r
+done
+```
+
+### Why not `permissions: copilot-requests: write`
+
+Because it does not work here, and it fails in a way that is easy to miss. That
+permission routes inference through the Actions token, which sounds ideal since
+it spreads no API keys around. It requires **centralised Copilot billing at
+organisation level**, which this org does not have. Without it, every agent dies
+at startup on:
+
+```
+awf-reflect: models fetch returned 403 for http://api-proxy:10002/models
+```
+
+`gh aw compile` will actively suggest you add `copilot-requests: write`, and it
+compiles cleanly with it. **Ignore that suggestion.** It is written for orgs on
+Copilot Business or Enterprise.
+
+Do not use `copilot-sdk: true` either. It forces bring-your-own-key driver mode,
+which aborts before doing any work unless an external provider is configured.
+
+### The lesson worth keeping
+
+A clean compile proves the YAML is well formed. It proves nothing about whether
+an agent can reach a model. When you change engine or credential configuration,
+dispatch a real run and confirm the **`agent`** job reaches `success`. The
+`activation` job succeeding only means secrets resolved, and a dead agent is
+indistinguishable from a healthy one until somebody looks.
+
 ## The cross-repo token: FLEET_PAT
 
 `GITHUB_TOKEN` is repo-scoped and cannot reach sibling repos. Anything that works
@@ -149,14 +188,17 @@ gh workflow run fleet-dispatch.yml --repo ai-educademy/.github \
 ## Adding a new agent to this layer
 
 1. Write a new `*.md` agentic workflow in `.github/workflows/`, using the same
-   frontmatter shape as `fleet-chief.md`: `engine: copilot` with
-   `copilot-requests: write` (no API key needed), a `max-daily-ai-credits` cap,
-   `timeout-minutes`, `strict: true`, a `network.allowed` list, and a
-   `FLEET_PAT` preflight step if it needs to reach other repos.
+   frontmatter shape as `fleet-chief.md`: `engine: copilot` (no `copilot-sdk`,
+   and no `copilot-requests` permission, see the credential section above), a
+   `max-daily-ai-credits` cap, `timeout-minutes`, `strict: true`, a
+   `network.allowed` list, and a `FLEET_PAT` preflight step if it needs to reach
+   other repos.
 2. Keep permissions as narrow as it needs. The Fleet Auditor will flag you if you
    over-grant.
 3. Compile with `gh aw compile`. Commit both the `.md` and the generated
-   `.lock.yml`, plus `.github/aw/` and `.gitattributes`.
+   `.lock.yml`, plus `.github/aw/` and `.gitattributes`. Confirm the lock
+   references `secrets.COPILOT_GITHUB_TOKEN`, then dispatch it once and check
+   the `agent` job actually succeeds.
 4. Never give an agent a merge safe-output. Merge authority stays in
    `org-fleet-manager.yml` alone.
 5. Document it in the table above.
