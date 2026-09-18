@@ -14,7 +14,8 @@ permissions:
   actions: read
   checks: read
 engine:
-  id: copilot
+  id: gemini
+  model: gemini-3.6-flash
 timeout-minutes: 30
 strict: true
 network:
@@ -91,21 +92,33 @@ independently. For every `.md` agentic workflow across all five repos, check:
    through `safe-outputs`, not raw permissions.
 
 2. **Engine and inference credential must actually work in this org (a
-   finding, not a nicety).** This org has no centralised Copilot billing, so two
-   settings that compile cleanly still leave the agent dead:
+   finding, not a nicety).** This org has no centralised Copilot billing and no
+   `COPILOT_GITHUB_TOKEN` secret, so the entire Copilot engine is unavailable
+   here no matter how cleanly a workflow compiles. Three settings look fine and
+   still leave the agent dead:
+   - `engine: copilot` in any form. Without org billing it fails at secret
+     verification and never reaches a model. Flag it as a finding.
    - `copilot-requests: write` in the `permissions:` block. It routes inference
      through org-level billing that does not exist here, so the models endpoint
-     returns 403 and the agent cannot infer at all. Flag it as a finding.
+     returns 403. Flag it as a finding.
    - `copilot-sdk: true` in the `engine:` block. It forces bring-your-own-key
      driver mode and the harness aborts before doing any work. Flag it as a
      finding.
    An agent that cannot run is not a minor configuration nit. It is a silently
    dead agent, and a dead agent is indistinguishable from a healthy one unless
-   someone checks. The correct expected state is: no `copilot-requests`
-   permission, `engine: copilot` with no `copilot-sdk`, and the compiled
-   `.lock.yml` referencing `COPILOT_GITHUB_TOKEN` (which falls back to the
-   owner's Copilot subscription). If a workflow diverges from that, say so and
-   name the fix.
+   someone checks. The correct expected state is `engine: gemini` with the
+   model pinned to a version that still exists, backed by the `GEMINI_API_KEY`
+   secret, and no `copilot-requests` permission anywhere.
+
+   **Pin the model, and check the pin is still valid.** An unpinned Gemini
+   model resolves to a default that Google retires without warning, and a
+   retired model fails at request time rather than at compile time. Flag any
+   agent whose `engine:` block has no `model:`. Also flag any pinned model that
+   the API reports as retired, because a pin that was correct when it was
+   written goes stale silently.
+
+   Do not suggest `permissions: models: read` with GitHub Models as an
+   alternative. GitHub Models is being retired and now returns HTTP 410.
 
 3. **Missing cost cap.** Flag any workflow without `max-daily-ai-credits`. An
    uncapped agent can run away with spend.
