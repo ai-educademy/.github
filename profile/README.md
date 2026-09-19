@@ -1,133 +1,97 @@
 <div align="center">
 
-# 🎓 AI Educademy
+# AI Educademy
 
 ### Multilingual AI and software engineering education, from absolute zero to interview ready
 
 [![Website](https://img.shields.io/badge/Website-aieducademy.org-6366f1?style=for-the-badge&logo=vercel&logoColor=white)](https://aieducademy.org)
 [![npm](https://img.shields.io/npm/v/@ai-educademy/ai-ui-library?style=for-the-badge&color=f59e0b&label=UI%20Library)](https://www.npmjs.com/package/@ai-educademy/ai-ui-library)
-[![License](https://img.shields.io/badge/License-MIT-10b981?style=for-the-badge)](https://github.com/ai-educademy/ai-platform/blob/main/LICENSE)
-[![Stars](https://img.shields.io/github/stars/ai-educademy?style=for-the-badge&color=ff9f0a)](https://github.com/ai-educademy)
+[![Licence](https://img.shields.io/badge/Licence-MIT-10b981?style=for-the-badge)](https://github.com/ai-educademy/ai-platform/blob/main/LICENSE)
 
----
+**Learn AI from zero. No coding, maths, or jargon required to start.**
 
-**Learn AI from zero. No coding, no maths, no jargon required to start.**
-
-🌍 Every lesson available in **11 languages**: English · Français · Deutsch · Español · Português · Nederlands · हिन्दी · తెలుగు · 日本語 · 中文 · العربية
+Every lesson is available in 11 languages: English, French, German, Spanish, Portuguese, Dutch, Hindi, Telugu, Japanese, Chinese, and Arabic.
 
 </div>
 
-## 🌱 Our Mission
+## Mission
 
-AI education should be **accessible** and **available in your language**. Too many learners, especially in the Global South, are left behind because quality AI resources are English-only or assume prior technical knowledge.
+AI education should be accessible, practical, and available in the learner's own language. AI Educademy starts from the basics and builds towards production AI, engineering craft, and career readiness.
 
-AI Educademy starts from the very basics and builds understanding step by step, using everyday language and real-world analogies. Every programme opens with a free lesson so you can judge the teaching before you pay anything.
+Every programme opens with a free first lesson so learners can judge the teaching before paying. Full access is available through Pro.
 
-## 🗺️ Learning Tracks
+## Learning tracks
 
-Fifteen programmes across three tracks, each running from level 1 to level 5.
+Fifteen programmes are grouped into three tracks:
 
-### 🌳 Understanding AI
-```
-🌱 AI Seeds       →  Absolute beginners, zero experience
-🌿 AI Sprouts     →  Foundations and core concepts
-🌳 AI Branches    →  Applied AI and real-world use cases
-🏕️ AI Canopy      →  Advanced topics and specialisation
-🌲 AI Forest      →  Expert level, research and contribution
-```
+| Track | Programmes |
+|-------|------------|
+| Understanding AI | AI Seeds, AI Sprouts, AI Branches, AI Canopy, AI Forest |
+| Craft and Engineering | AI Sketch, AI Chisel, AI Craft, AI Polish, AI Masterpiece |
+| Career Ready | Interview Launchpad, Behavioural Mastery, Technical Interviews, AI and ML Interviews, Offer and Beyond |
 
-### 🔨 Craft and Engineering
-```
-✏️ AI Sketch       →  Data structures and problem solving basics
-🪨 AI Chisel       →  Intermediate algorithms and patterns
-🔨 AI Craft        →  System design and architecture
-💎 AI Polish       →  Optimisation and advanced techniques
-🏆 AI Masterpiece  →  Interview-ready mastery
-```
+## Pricing
 
-### 🎯 Career Ready
-```
-🚀 Interview Launchpad   →  How hiring actually works, and how to prepare
-🗣️ Behavioral Mastery    →  Stories, structure and signal
-⚙️ Technical Interviews  →  Coding rounds and live problem solving
-🤖 AI & ML Interviews    →  ML system design and applied AI rounds
-🏁 Offer & Beyond        →  Negotiation, levelling and the first 90 days
-```
+The first lesson of every programme is free, in every language. Full access to all fifteen programmes is available through Pro:
 
-## 💷 Pricing
+| Plan | Price |
+|------|-------|
+| Monthly | £3.99/month |
+| Annual | £29.99/year |
+| Lifetime | £49.99 |
 
-The first lesson of every programme is free, in every language. Full access to all fifteen programmes is **£3.99/month** or **£29.99/year**.
+Subscriptions pay for hosting, translation, and new content. They keep the product advert free.
 
-Subscriptions pay for hosting, translation and new content. They are the reason this can exist without ads or selling anyone's data.
-
-## 📦 Repository Map
+## Repository map
 
 | Repo | Role | Description |
 |------|------|-------------|
-| [`ai-platform`](https://github.com/ai-educademy/ai-platform) | 🌐 App Shell | Next.js 16, React 19, i18n, auth, payments, routing. The deployed site |
-| [`ai-courses`](https://github.com/ai-educademy/ai-courses) | 📚 Free Content | MDX lessons for the free programmes and the blog, in all 11 languages |
-| `ai-courses-pro` | 🔒 Premium Content | Subscriber lesson content. Private |
-| [`ai-ui-library`](https://github.com/ai-educademy/ai-ui-library) | 🎨 Design System | Shared components on [npm](https://www.npmjs.com/package/@ai-educademy/ai-ui-library). Button, Card, ThemeToggle, animations |
+| [`ai-platform`](https://github.com/ai-educademy/ai-platform) | App shell | Next.js 16, React 19, i18n, auth, payments, routing, and deployment for [aieducademy.org](https://aieducademy.org) |
+| [`ai-courses`](https://github.com/ai-educademy/ai-courses) | Public content | Free first lessons and the public blog in 11 languages |
+| `ai-courses-pro` | Pro content | Private subscriber lessons for paid plans |
+| [`ai-ui-library`](https://github.com/ai-educademy/ai-ui-library) | Design system | Shared React components on [npm](https://www.npmjs.com/package/@ai-educademy/ai-ui-library) |
 
-### Architecture
+## Architecture
 
-```
-┌────────────────────────────────────────────────────────┐
-│                     ai-platform                         │
-│            Next.js 16 app shell (Vercel)                │
-│   routing · auth · i18n · payments · program registry   │
-├──────────────────┬─────────────────────────────────────┤
-│  ai-ui-library   │   ai-courses  +  ai-courses-pro      │
-│  (npm package)   │  ┌───────────────────────────────┐   │
-│                  │  │  Understanding AI              │   │
-│  Button · Card   │  │  🌱 Seeds → 🌿 Sprouts →      │   │
-│  Badge · Theme   │  │  🌳 Branches → 🏕️ Canopy →    │   │
-│  Animations      │  │  🌲 Forest                     │   │
-│                  │  ├───────────────────────────────┤   │
-│                  │  │  Craft & Engineering           │   │
-│                  │  │  ✏️ Sketch → 🪨 Chisel →       │   │
-│                  │  │  🔨 Craft → 💎 Polish →        │   │
-│                  │  │  🏆 Masterpiece                │   │
-│                  │  ├───────────────────────────────┤   │
-│                  │  │  Career Ready                  │   │
-│                  │  │  🚀 Launchpad → 🗣️ Behavioral →│   │
-│                  │  │  ⚙️ Technical → 🤖 AI/ML →     │   │
-│                  │  │  🏁 Offer & Beyond             │   │
-│                  │  └───────────────────────────────┘   │
-└──────────────────┴─────────────────────────────────────┘
+```text
+ai-platform
+  Next.js app shell, auth, payments, i18n, programme registry
+  |
+  +-- ai-ui-library
+  |     Shared React components and design tokens
+  |
+  +-- ai-courses
+  |     Free first lessons and blog content
+  |
+  +-- ai-courses-pro
+        Private subscriber lessons
 ```
 
-## 🚀 Get Started
+## Get started
 
-Visit **[aieducademy.org](https://aieducademy.org)** and take the first lesson free. It takes 10 minutes.
+Visit [aieducademy.org](https://aieducademy.org) and take the first lesson free. It takes about 10 minutes.
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions from everyone:
+We welcome focused contributions:
 
-- 🌍 **Improve a translation**. Lessons marked `machineTranslated` need a native-speaker pass
-- ✍️ **Write lessons**. Share your AI or coding knowledge
-- 🧩 **Build components**. Contribute to the UI library
-- 💻 **Code**. Features, fixes, new programmes
-- 📣 **Share**. Tell your friends, classmates and communities
+- Improve a translation
+- Fix a typo or explanation
+- Add a practical example
+- Improve accessibility
+- Build a reusable UI component
+- Fix product defects in the platform
 
-## 🤖 Automation
+## Automation
 
-This org runs an agent fleet. Each repo has its own agents, and the
-[`ai-educademy/.github`](https://github.com/ai-educademy/.github) repo runs the
-org-level command layer above them: a daily Fleet Chief that reports fleet
-health, a weekly Fleet Auditor that checks the agents' own configuration, and a
-plain, auditable cross-repo merge authority. Read [FLEET.md](FLEET.md) for what
-each agent does, how the guardrails work, and where the kill switch is.
+This org runs an agent fleet. Each repo owns its local agents, and [`ai-educademy/.github`](https://github.com/ai-educademy/.github) owns the org level command layer. Read [FLEET.md](FLEET.md) for the fleet roles, guardrails, and kill switch.
 
-## 👨‍💻 Built By
+## Built by
 
-[**@rameshreddy-adutla**](https://github.com/rameshreddy-adutla) · Tech Lead, 14 years experience · London
-
----
+[@rameshreddy-adutla](https://github.com/rameshreddy-adutla)
 
 <div align="center">
 
-**⭐ Star our repos if you believe AI education should reach everyone, in their own language**
+**Star the repos if you believe AI education should reach everyone, in their own language.**
 
 </div>
