@@ -4,7 +4,7 @@ name: Fleet Chief
 description: Org-level manager of managers. Surveys all five ai-educademy repos daily and reports on the health of the whole agent fleet. Reads and reasons only, never merges or edits.
 on:
   schedule:
-    - cron: "daily"
+    - cron: "weekly on tuesday"
   workflow_dispatch:
 max-daily-ai-credits: 8000
 permissions:
@@ -14,7 +14,7 @@ permissions:
   actions: read
 engine:
   id: gemini
-  model: gemini-3.6-flash
+  model: gemini-3-flash-preview
 timeout-minutes: 30
 strict: true
 network:
