@@ -40,6 +40,9 @@ tools:
     github-token: ${{ secrets.FLEET_PAT }}
     toolsets: [repos, issues, pull_requests, actions, orgs]
 safe-outputs:
+  # No Copilot token in this org; skip the AI pass. Agent PRs still need green CI.
+  threat-detection:
+    engine: false
   create-issue:
     labels: [fleet-audit]
     title-prefix: "[Fleet Audit] "

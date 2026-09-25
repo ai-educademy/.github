@@ -99,13 +99,19 @@ jobs:
       # with a clear, actionable message.
       # ------------------------------------------------------------------
       - name: Require FLEET_PAT
+        id: token
         if: ${{ vars.FLEET_AUTOMERGE != 'off' }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error title=FLEET_PAT missing::org-fleet-manager needs a cross-repo token to merge PRs in sibling repos. GITHUB_TOKEN is repo-scoped and cannot reach them. Create a fine-grained PAT with pull_request:write on all five repos and add it as the FLEET_PAT secret in ai-educademy/.github. See FLEET.md for exact scopes."
-            exit 1
+            # Per-repo fleet managers already merge within their own repo, so a
+            # missing org token is a gap, not an outage. Warn and skip rather
+            # than paint every run red.
+            echo "::warning title=FLEET_PAT missing::Cross-repo merging is skipped. Add a fine-grained PAT with pull_request:write on all five repos as the FLEET_PAT secret in ai-educademy/.github. See FLEET.md."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "present=true" >> "$GITHUB_OUTPUT"
           echo "FLEET_PAT is present."
 
       # ------------------------------------------------------------------
@@ -114,7 +120,7 @@ jobs:
       # automated merges.
       # ------------------------------------------------------------------
       - name: Merge ready agent PRs
-        if: ${{ vars.FLEET_AUTOMERGE != 'off' }}
+        if: ${{ vars.FLEET_AUTOMERGE != 'off' && steps.token.outputs.present == 'true' }}
         run: |
           set -euo pipefail
 
