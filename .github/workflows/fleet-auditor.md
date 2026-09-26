@@ -37,7 +37,7 @@ steps:
 tools:
   cli-proxy: true
   cache-memory: true
-  bash: ["gh *", "cat", "ls", "grep", "head", "jq", "diff", "sort", "uniq", "wc"]
+  bash: ["safeoutputs *", "gh *", "cat", "ls", "grep", "head", "jq", "diff", "sort", "uniq", "wc"]
   github:
     mode: gh-proxy
     github-token: ${{ secrets.FLEET_PAT }}
