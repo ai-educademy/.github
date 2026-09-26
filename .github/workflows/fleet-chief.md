@@ -173,3 +173,16 @@ few numbers that back that up. Do not pad it to look busy. Padding turns the
 report into noise, noise gets ignored, and an ignored report defeats the whole
 point of this role. Be honest, be brief when things are fine, and be loud and
 specific when they are not.
+
+## Mandatory final step
+
+Your run is only recorded if you finish with a safe-output call. Ending with a plain-text summary counts as a failed run.
+
+- If you found something actionable, use the matching safe output (for example `create_issue` or `create_pull_request`).
+- If there is nothing to report, run exactly this shell command, with your one-line summary as the message:
+
+```bash
+safeoutputs noop '{"message":"<one-line summary of what you checked and found>"}'
+```
+
+Do not stop until one of these calls has succeeded.
